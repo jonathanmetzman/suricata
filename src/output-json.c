@@ -439,7 +439,7 @@ static void EveAddMetadata(const Packet *p, const Flow *f, JsonBuilder *js)
     }
 }
 
-int CreateJSONEther(JsonBuilder *parent, const Packet *p, const MacSet *ms);
+int CreateJSONEther(JsonBuilder *parent, const Packet *p, const Flow *f);
 
 void EveAddCommonOptions(const OutputJsonCommonSettings *cfg,
         const Packet *p, const Flow *f, JsonBuilder *js)
@@ -448,9 +448,7 @@ void EveAddCommonOptions(const OutputJsonCommonSettings *cfg,
         EveAddMetadata(p, f, js);
     }
     if (cfg->include_ethernet) {
-        MacSet *ms = FlowGetStorageById((Flow*) f, MacSetGetFlowStorageID());
-        if (ms != NULL)
-            CreateJSONEther(js, p, ms);
+        CreateJSONEther(js, p, f);
     }
     if (cfg->include_community_id && f != NULL) {
         CreateEveCommunityFlowId(js, f, cfg->community_id_seed);
@@ -467,7 +465,7 @@ void EveAddCommonOptions(const OutputJsonCommonSettings *cfg,
 void EvePacket(const Packet *p, JsonBuilder *js, unsigned long max_length)
 {
     unsigned long max_len = max_length == 0 ? GET_PKT_LEN(p) : max_length;
-    unsigned long len = 2 * max_len;
+    unsigned long len = BASE64_BUFFER_SIZE(max_len);
     uint8_t encoded_packet[len];
     if (Base64Encode((unsigned char*) GET_PKT_DATA(p), max_len, encoded_packet, &len) == SC_BASE64_OK) {
         jb_set_string(js, "packet", (char *)encoded_packet);
@@ -798,15 +796,23 @@ static int MacSetIterateToJSON(uint8_t *val, MacSetSide side, void *data)
     return 0;
 }
 
-int CreateJSONEther(JsonBuilder *js, const Packet *p, const MacSet *ms)
+int CreateJSONEther(JsonBuilder *js, const Packet *p, const Flow *f)
 {
-    jb_open_object(js, "ether");
     if (unlikely(js == NULL))
         return 0;
+    /* start new EVE sub-object */
+    jb_open_object(js, "ether");
     if (p == NULL) {
+        MacSet *ms = NULL;
+        /* ensure we have a flow */
+        if (unlikely(f == NULL)) {
+            jb_close(js);
+            return 0;
+        }
         /* we are creating an ether object in a flow context, so we need to
            append to arrays */
-        if (MacSetSize(ms) > 0) {
+        ms = FlowGetStorageById((Flow *)f, MacSetGetFlowStorageID());
+        if (ms != NULL && MacSetSize(ms) > 0) {
             JSONMACAddrInfo info;
             info.dst = jb_new_array();
             info.src = jb_new_array();
@@ -815,6 +821,7 @@ int CreateJSONEther(JsonBuilder *js, const Packet *p, const MacSet *ms)
                 /* should not happen, JSONFlowAppendMACAddrs is sane */
                 jb_free(info.dst);
                 jb_free(info.src);
+                jb_close(js);
                 return ret;
             }
             jb_close(info.dst);
