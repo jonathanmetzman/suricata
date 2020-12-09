@@ -8,11 +8,17 @@ jobs:
      matrix:
        sanitizer: [address, undefined, memory]
    steps:
+   - name: Checkout source
+     uses: actions/checkout@v2
+     id: checkout
+     with:
+       path: suricata
    - name: Build Fuzzers (${{ matrix.sanitizer }})
      uses: google/oss-fuzz/infra/cifuzz/actions/build_fuzzers@master
      with:
        oss-fuzz-project-name: 'suricata'
        dry-run: false
+       project-src-path: 'suricata'
        sanitizer: ${{ matrix.sanitizer }}
    - name: Run Fuzzers (${{ matrix.sanitizer }})
      uses: google/oss-fuzz/infra/cifuzz/actions/run_fuzzers@master
